@@ -352,3 +352,107 @@ Setelah kedua klien sepenuhnya tersinkronisasi:
 Anda bisa mengetes koneksi RPC secara lokal di VPS (jika `curl` terinstal):
 ```bash
 curl -X POST -H "Content-Type: application/json" --data '{"jsonrpc":"2.0","method":"eth_syncing","params":[],"id":1}' [http://127.0.0.1:8545](http://127.0.0.1:8545)
+```
+Jika sudah sinkron, hasilnya akan: `{"jsonrpc":"2.0","id":1,"result":false}`. Jika masih sinkron, akan menampilkan detail progres.
+## Langkah 8: Update Klien (Contoh Lighthouse)
+
+Penting untuk menjaga klien Anda tetap update demi keamanan, performa, dan kompatibilitas dengan fork jaringan terbaru. Berikut adalah contoh umum cara mengupdate Lighthouse jika Anda menginstalnya dari binary pre-compiled (selalu sesuaikan nama file dan versi dengan rilis terbaru dari GitHub Lighthouse):
+
+1.  **Hentikan Layanan Lighthouse:**
+    ```bash
+    sudo systemctl stop lighthouse-sepolia-beacon.service
+    ```
+
+2.  **Download Versi Terbaru:**
+    Kunjungi halaman rilis Lighthouse di GitHub ([https://github.com/sigp/lighthouse/releases](https://github.com/sigp/lighthouse/releases)) untuk mendapatkan URL unduhan binary `x86_64-unknown-linux-gnu.tar.gz` yang terbaru.
+    ```bash
+    cd ~ # Pindah ke direktori home Anda
+    # Ganti vX.Y.Z dengan nomor versi terbaru yang ingin Anda instal
+    LIGHTHOUSE_NEW_VERSION_FILENAME="lighthouse-vX.Y.Z-x86_64-unknown-linux-gnu.tar.gz" 
+    wget [https://github.com/sigp/lighthouse/releases/download/vX.Y.Z/$](https://github.com/sigp/lighthouse/releases/download/vX.Y.Z/$){LIGHTHOUSE_NEW_VERSION_FILENAME}
+    ```
+
+3.  **Ekstrak File:**
+    ```bash
+    tar -xvf ${LIGHTHOUSE_NEW_VERSION_FILENAME}
+    ```
+
+4.  **Ganti File Lama dengan yang Baru:**
+    (Asumsi file Lighthouse lama Anda ada di `/usr/local/bin/lighthouse`)
+    ```bash
+    sudo mv lighthouse /usr/local/bin/lighthouse
+    ```
+
+5.  **Verifikasi Versi Baru:**
+    ```bash
+    lighthouse --version
+    ```
+    Pastikan outputnya menunjukkan versi yang baru saja Anda instal.
+
+6.  **Bersihkan File Unduhan (Opsional):**
+    ```bash
+    rm ${LIGHTHOUSE_NEW_VERSION_FILENAME}
+    ```
+
+7.  **Mulai Ulang Layanan Lighthouse:**
+    ```bash
+    sudo systemctl start lighthouse-sepolia-beacon.service
+    ```
+
+8.  **Pantau Log:**
+    ```bash
+    sudo journalctl -fu lighthouse-sepolia-beacon.service
+    ```
+    Perhatikan apakah ada error atau pesan yang tidak biasa setelah update.
+
+**Peringatan Penting untuk Update Mayor:**
+* Selalu baca **catatan rilis (release notes)** di GitHub sebelum melakukan update mayor (misalnya, dari v5.x ke v7.x seperti yang Anda lakukan sebelumnya). Mungkin ada perubahan pada flags, konfigurasi, atau format data yang memerlukan penyesuaian.
+* **Error `MissingGenesisState` Setelah Update:** Seperti yang telah kita alami, error ini bisa muncul setelah update mayor karena ketidakcocokan database. Solusinya adalah memulai Lighthouse dengan direktori data yang baru (kosong), yang akan memicu sinkronisasi ulang dari checkpoint:
+    1.  Hentikan Lighthouse: `sudo systemctl stop lighthouse-sepolia-beacon.service`
+    2.  Backup (pindahkan) direktori data lama: `sudo mv /var/lib/lighthouse-sepolia /var/lib/lighthouse-sepolia-backup-VERSI_LAMA`
+    3.  Buat ulang direktori data kosong: `sudo mkdir -p /var/lib/lighthouse-sepolia`
+    4.  Atur kepemilikan: `sudo chown -R lighthouseuser:lighthouseuser /var/lib/lighthouse-sepolia`
+    5.  Mulai Lighthouse: `sudo systemctl start lighthouse-sepolia-beacon.service`
+
+---
+
+## Tips Tambahan dan Troubleshooting Umum
+
+* **Pantau Penggunaan Disk:** Dengan penyimpanan 250GB, ini adalah batas yang cukup ketat untuk node Ethereum, bahkan testnet. Pantau penggunaan disk Anda secara berkala:
+    ```bash
+    df -h
+    ```
+    Jika mendekati penuh, Anda mungkin perlu mempertimbangkan untuk melakukan pruning (jika klien mendukung dan belum otomatis) atau menambah kapasitas penyimpanan. Geth modern melakukan pruning secara otomatis.
+
+* **Perintah Tidak Ditemukan (`command not found`):**
+    Jika Anda mendapatkan error ini untuk perintah seperti `ping`, `nslookup`, `dig`, atau `systemd-resolve`, Anda mungkin perlu menginstal paket yang menyediakannya:
+    * Untuk `ping`: `sudo apt install -y iputils-ping`
+    * Untuk `nslookup` dan `dig`: `sudo apt install -y dnsutils`
+    * Perintah `systemd-resolve` seharusnya menjadi bagian dari paket `systemd` inti. Jika benar-benar tidak ada, instalasi `systemd` Anda mungkin tidak lengkap atau ada masalah path. Anda bisa mencoba: `sudo apt install --reinstall systemd systemd-sysv`.
+
+* **Perubahan Keanggotaan Grup Pengguna:**
+    Jika Anda mengubah keanggotaan grup pengguna (misalnya, menambahkan `lighthouseuser` ke grup `gethuser`), perubahan ini mungkin tidak langsung diterapkan pada sesi atau layanan yang sedang berjalan. Restart layanan terkait (`geth-sepolia.service` dan `lighthouse-sepolia-beacon.service`) biasanya cukup. Jika masih bermasalah, melakukan reboot pada VPS (`sudo reboot`) akan memastikan semua perubahan diterapkan.
+
+* **Koneksi Peer Rendah:**
+    Jika salah satu klien Anda (Geth atau Lighthouse) kesulitan menemukan peer:
+    * Pastikan port P2P yang sesuai (Geth: 30303 TCP/UDP, Lighthouse: 9000 TCP/UDP) sudah dibuka di firewall (UFW) Anda dan juga di firewall level provider VPS (jika ada).
+    * Pastikan waktu sistem VPS Anda akurat.
+    * Restart klien kadang bisa membantu menemukan peer baru.
+
+* **Membaca Log adalah Kunci:**
+    Sebagian besar masalah akan memberikan petunjuk di log. Gunakan `sudo journalctl -fu NAMA_SERVICE.service -n 100` (parameter `-n 100` untuk melihat 100 baris terakhir) untuk melihat log terkini jika ada error saat memulai layanan.
+
+* **Dokumentasi Resmi Klien:**
+    Selalu rujuk ke dokumentasi resmi Geth dan Lighthouse untuk informasi paling akurat dan terkini mengenai konfigurasi, flags, dan troubleshooting:
+    * Geth: [https://geth.ethereum.org/docs/](https://geth.ethereum.org/docs/)
+    * Lighthouse: [https://lighthouse-book.sigmaprime.io/](https://lighthouse-book.sigmaprime.io/)
+
+---
+
+## Penutup
+
+Menjalankan node Ethereum penuh, bahkan di testnet seperti Sepolia, memerlukan perhatian terhadap detail dan kesabaran, terutama saat menghadapi berbagai tantangan teknis selama proses penyiapan dan sinkronisasi. Dengan mengikuti panduan ini dan memahami berbagai pelajaran dari proses debugging yang telah kita lalui bersama, Anda seharusnya sekarang memiliki pemahaman yang lebih baik dan node RPC Sepolia yang berfungsi.
+
+Perjalanan ini mungkin panjang, tetapi pengetahuan yang Anda dapatkan sangat berharga. Selamat telah berhasil melewati semua langkah dan semoga node Anda berjalan dengan lancar! Jika ada kendala lebih lanjut, jangan ragu untuk merujuk kembali ke dokumentasi resmi klien atau mencari bantuan di komunitas Ethereum.
+
+Selamat mencoba dan semoga sukses dengan node Sepolia Anda!
